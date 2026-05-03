@@ -1,18 +1,40 @@
+import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useProperties } from '../hooks/useProperties'
 import PropertyCard from '../components/PropertyCard'
-
-// ダミー物件データ
-const DUMMY_PROPERTIES = [
-  { id: 1, name: 'グランドヒルズ渋谷', rent: 180000, area: '東京都渋谷区', type: 'マンション' },
-  { id: 2, name: 'サンライズ新宿', rent: 120000, area: '東京都新宿区', type: 'アパート' },
-  { id: 3, name: 'ラ・コリーナ六本木', rent: 250000, area: '東京都港区', type: 'マンション' },
-  { id: 4, name: 'エレガンス恵比寿', rent: 160000, area: '東京都渋谷区', type: 'マンション' },
-  { id: 5, name: 'パークビュー豊島', rent: 90000, area: '東京都豊島区', type: 'アパート' },
-  { id: 6, name: 'ブルースカイ中野', rent: 75000, area: '東京都中野区', type: 'アパート' },
-]
+import PropertyForm from '../components/PropertyForm'
+import type { Property, PropertyInput } from '../types/property'
 
 export default function Properties() {
   const { user, signOut } = useAuth()
+  const { properties, loading, error, addProperty, updateProperty, deleteProperty } = useProperties()
+
+  // モーダル制御: null=非表示, 'new'=新規登録, Property=編集対象
+  const [formTarget, setFormTarget] = useState<null | 'new' | Property>(null)
+
+  // 操作エラーをユーザーに通知するためのメッセージ
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const handleAddSubmit = async (input: PropertyInput) => {
+    const err = await addProperty(input)
+    if (err) return err
+    setFormTarget(null)
+    return null
+  }
+
+  const handleEditSubmit = async (input: PropertyInput) => {
+    if (!formTarget || formTarget === 'new') return '編集対象が不正です'
+    const err = await updateProperty(formTarget.id, input)
+    if (err) return err
+    setFormTarget(null)
+    return null
+  }
+
+  const handleDelete = async (id: string) => {
+    setActionError(null)
+    const err = await deleteProperty(id)
+    if (err) setActionError(err)
+  }
 
   return (
     <div style={styles.page}>
@@ -21,22 +43,71 @@ export default function Properties() {
         <h1 style={styles.logo}>🏠 不動産管理アプリ</h1>
         <div style={styles.userInfo}>
           <span style={styles.email}>{user?.email}</span>
-          <button onClick={signOut} style={styles.signOutButton}>
-            ログアウト
-          </button>
+          <button onClick={signOut} style={styles.signOutButton}>ログアウト</button>
         </div>
       </header>
 
       {/* メインコンテンツ */}
       <main style={styles.main}>
-        <h2 style={styles.sectionTitle}>物件一覧</h2>
-        <p style={styles.count}>{DUMMY_PROPERTIES.length} 件</p>
-        <div style={styles.grid}>
-          {DUMMY_PROPERTIES.map((property) => (
-            <PropertyCard key={property.id} property={property} />
-          ))}
+        <div style={styles.toolbar}>
+          <div>
+            <h2 style={styles.sectionTitle}>物件一覧</h2>
+            {!loading && (
+              <p style={styles.count}>{properties.length} 件</p>
+            )}
+          </div>
+          <button onClick={() => setFormTarget('new')} style={styles.addButton}>
+            ＋ 新規登録
+          </button>
         </div>
+
+        {/* API エラー表示 */}
+        {(error || actionError) && (
+          <p style={styles.error}>{error ?? actionError}</p>
+        )}
+
+        {/* ローディング */}
+        {loading && <p style={styles.loading}>読み込み中...</p>}
+
+        {/* 物件ゼロ件 */}
+        {!loading && properties.length === 0 && (
+          <div style={styles.empty}>
+            <p>登録された物件がありません。</p>
+            <p>「＋ 新規登録」から追加してください。</p>
+          </div>
+        )}
+
+        {/* 物件グリッド */}
+        {!loading && properties.length > 0 && (
+          <div style={styles.grid}>
+            {properties.map((property) => (
+              <PropertyCard
+                key={property.id}
+                property={property}
+                onEdit={(p) => setFormTarget(p)}
+                onDelete={handleDelete}
+              />
+            ))}
+          </div>
+        )}
       </main>
+
+      {/* 新規登録モーダル */}
+      {formTarget === 'new' && (
+        <PropertyForm
+          onSubmit={handleAddSubmit}
+          onCancel={() => setFormTarget(null)}
+        />
+      )}
+
+      {/* 編集モーダル */}
+      {formTarget && formTarget !== 'new' && (
+        <PropertyForm
+          initialData={formTarget}
+          onSubmit={handleEditSubmit}
+          onCancel={() => setFormTarget(null)}
+        />
+      )}
     </div>
   )
 }
@@ -82,16 +153,46 @@ const styles: Record<string, React.CSSProperties> = {
     margin: '0 auto',
     padding: '2rem 1.5rem',
   },
+  toolbar: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: '1.5rem',
+  },
   sectionTitle: {
     fontSize: '1.5rem',
     fontWeight: 700,
     color: '#1a202c',
-    marginBottom: '0.25rem',
   },
   count: {
     fontSize: '0.9rem',
     color: '#718096',
-    marginBottom: '1.5rem',
+    marginTop: '0.2rem',
+  },
+  addButton: {
+    padding: '0.65rem 1.25rem',
+    backgroundColor: '#2563eb',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '0.95rem',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  error: {
+    color: '#e53e3e',
+    fontSize: '0.9rem',
+    marginBottom: '1rem',
+  },
+  loading: {
+    color: '#718096',
+    fontSize: '0.9rem',
+  },
+  empty: {
+    textAlign: 'center',
+    padding: '4rem 0',
+    color: '#718096',
+    lineHeight: 2,
   },
   grid: {
     display: 'grid',
